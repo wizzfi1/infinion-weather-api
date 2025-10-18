@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: infinion-weather-api-lb
+  namespace: infinion
+spec:
+  type: LoadBalancer
+  selector:
+    app: infinion-weather-api
+  ports:
+    - port: 80
+      targetPort: 80

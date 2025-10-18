@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: infinion-weather-api
+  namespace: infinion
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: infinion-weather-api
+  template:
+    metadata:
+      labels:
+        app: infinion-weather-api
+    spec:
+      containers:
+      - name: infinion-weather-api
+        image: REPLACE_WITH_ACR_LOGIN/infinion-weather-api:REPLACE_TAG
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /weatherforecast
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /weatherforecast
+            port: 80
+          initialDelaySeconds: 20
+          periodSeconds: 20
