@@ -16,7 +16,7 @@ terraform.tfstate.backup
 
 *.auto.tfvars.json
 
-
+terraform.auto.tfvars
 azure-credentials.json
 *.pem
 *.key

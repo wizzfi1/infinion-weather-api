@@ -1,4 +1,6 @@
 terraform {
+  required_version = ">= 1.5.0"
+
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
@@ -9,13 +11,14 @@ terraform {
       version = "~> 3.0"
     }
   }
-
-  required_version = ">= 1.5.0"
 }
 
 provider "azurerm" {
   features {}
-  use_cli         = true
+
+  # These will automatically read from environment variables if not set
   subscription_id = var.subscription_id
-  tenant_id       = "215b7ce2-5263-4593-a622-da030405d151"
+  tenant_id       = var.tenant_id
+  client_id       = var.client_id
+  client_secret   = var.client_secret
 }

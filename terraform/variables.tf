@@ -1,7 +1,29 @@
 variable "subscription_id" {
-  description = "Azure subscription ID"
+  description = "Azure Subscription ID"
   type        = string
+  default     = ""
 }
+
+variable "tenant_id" {
+  description = "Azure Tenant ID"
+  type        = string
+  default     = ""
+}
+
+variable "client_id" {
+  description = "Azure Service Principal Client ID"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "client_secret" {
+  description = "Azure Service Principal Client Secret"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 
 variable "location" {
   description = "Azure region to deploy resources"
@@ -10,21 +32,26 @@ variable "location" {
 }
 
 variable "resource_group_name" {
-  type    = string
-  default = "infinion-devops-rg"
+  description = "The name of the Azure Resource Group to create or use"
+  type        = string
+  default     = "infinion-devops-rg"
 }
 
+
 variable "aks_cluster_name" {
-  type    = string
-  default = "infinion-aks-cluster"
+  description = "The name of the AKS cluster"
+  type        = string
+  default     = "infinion-aks-cluster"
 }
 
 variable "node_count" {
-  type    = number
-  default = 2
+  description = "Number of nodes in the AKS cluster"
+  type        = number
+  default     = 1
 }
 
 variable "vm_size" {
-  type    = string
-  default = "Standard_DS2_v2"
+  description = "The size of the VMs for AKS nodes"
+  type        = string
+  default     = "Standard_B2s"
 }
