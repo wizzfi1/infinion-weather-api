@@ -2,20 +2,18 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 4.0"
+      version = "~> 3.115"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
     }
   }
 
   required_version = ">= 1.5.0"
 }
 
-
 provider "azurerm" {
   features {}
-
-  use_cli = true
-
-  # Force Terraform to use the ARM endpoint only
-  environment = "public"
-  skip_provider_registration = true
+  use_cli = true  # ← this lets you use your Cloud Shell / az login context
 }
