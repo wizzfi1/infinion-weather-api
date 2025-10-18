@@ -9,9 +9,13 @@ terraform {
   required_version = ">= 1.5.0"
 }
 
+
 provider "azurerm" {
   features {}
 
-  # Use Azure CLI or Cloud Shell authentication
   use_cli = true
+
+  # Force Terraform to use the ARM endpoint only
+  environment = "public"
+  skip_provider_registration = true
 }
