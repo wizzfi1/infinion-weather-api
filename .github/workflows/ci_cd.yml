@@ -23,12 +23,13 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: '8.0.x'  
+          dotnet-version: '8.0.x'
 
       - name: Build project
         run: |
-          dotnet build --configuration Release
-          dotnet test --verbosity normal
+          # Use the solution file for building
+          dotnet build devops-api.sln --configuration Release
+          dotnet test devops-api.sln --verbosity normal
 
       - name: Login to Azure
         uses: azure/login@v1
@@ -38,10 +39,9 @@ jobs:
       - name: Build and push to ACR
         id: build
         run: |
-          # Use ACR build instead of Docker build-push (simpler and uses Azure's build agents)
           az acr build --registry $ACR_NAME \
-            --image ${{ env.IMAGE_NAME }}:${{ github.sha }} \
-            --image ${{ env.IMAGE_NAME }}:latest \
+            --image infinion-weather-api:${{ github.sha }} \
+            --image infinion-weather-api:latest \
             .
           echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
 
@@ -69,30 +69,22 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          # Create namespace if not exists
           kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
-          
-          # Apply Kubernetes manifests
           kubectl apply -f k8s/namespace.yaml
           kubectl apply -f k8s/service.yaml
           
-          # Update deployment with new image (handles both create and update)
           kubectl set image deployment/infinion-weather-api infinion-weather-api=$ACR_NAME.azurecr.io/infinion-weather-api:$IMAGE_TAG -n $NAMESPACE --record
           
-          # If deployment doesn't exist, create it
           if ! kubectl get deployment/infinion-weather-api -n $NAMESPACE; then
             echo "Creating new deployment..."
             sed "s#REPLACE_WITH_ACR_LOGIN#$ACR_NAME.azurecr.io#g; s#REPLACE_TAG#$IMAGE_TAG#g" k8s/deployment.yaml | kubectl apply -f -
           fi
           
-          # Wait for rollout to complete
           kubectl rollout status deployment/infinion-weather-api -n $NAMESPACE --timeout=300s
 
       - name: Verify deployment
         run: |
-          echo "Deployment completed successfully!"
+          echo " Deployment completed successfully!"
           kubectl get all -n $NAMESPACE
-          
-          # Get service URL for easy access
           SERVICE_IP=$(kubectl get service infinion-weather-api-service -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
-          echo "Weather API URL: http://$SERVICE_IP/weatherforecast"
+          echo " Weather API URL: http://$SERVICE_IP/weatherforecast"
