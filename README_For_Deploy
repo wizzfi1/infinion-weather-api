@@ -1,0 +1,125 @@
+# 🌦️ Infinion Weather API – Cloud-Native Deployment
+
+## 🚀 Project Overview
+This project demonstrates a full **CI/CD deployment pipeline** for the **Infinion Weather API** on **Microsoft Azure**.  
+It automates infrastructure provisioning, container image builds, and Kubernetes deployment using:
+
+- **Terraform** – Infrastructure-as-Code (IaC)  
+- **Azure Container Registry (ACR)** – Private image storage  
+- **Azure Kubernetes Service (AKS)** – Managed Kubernetes  
+- **GitHub Actions** – CI/CD automation  
+- **Azure CLI / kubectl** – Validation & operations  
+
+---
+
+## 🏗️ High-Level Architecture
+
+```
+                ┌────────────────────────────┐
+                │        GitHub Repo          │
+                │  (source + GitHub Actions)  │
+                └────────────┬───────────────┘
+                             │
+                             ▼
+                  ┌──────────────────┐
+                  │  Build & Push to │
+                  │ Azure Container  │
+                  │    Registry      │
+                  └──────────────────┘
+                             │
+                             ▼
+               ┌───────────────────────────┐
+               │ Azure Kubernetes Service  │
+               │ (AKS pulls image via MI)  │
+               └──────────┬────────────────┘
+                          │
+                          ▼
+              ┌────────────────────────────┐
+              │ LoadBalancer Service       │
+              │ Exposes API publicly       │
+              └────────────────────────────┘
+```
+
+⚙️ Components
+```
+| Component        | Tool                     | Purpose                          |
+| ---------------- | ------------------------ | -------------------------------- |
+| **IaC**          | Terraform                | Provisions RG, ACR, AKS          |
+| **Registry**     | Azure Container Registry | Secure image storage             |
+| **Orchestrator** | AKS                      | Runs Weather API containers      |
+| **CI/CD**        | GitHub Actions           | Builds and deploys automatically |
+| **Networking**   | LoadBalancer             | Exposes API endpoint             |
+```
+
+erraform Infrastructure
+Files
+
+main.tf – defines RG, ACR, AKS, RBAC
+
+variables.tf – all environment variables
+
+providers.tf – configures Azure provider
+
+outputs.tf – exports ACR login server, AKS name, etc.
+
+Key Commands
+
+```
+terraform init
+terraform plan
+terraform apply -auto-approve
+```
+
+erraform provisions:
+
+Resource Group → infinion-devops-rg
+
+ACR → e.g. infinionacr1760906713
+
+AKS → infinion-aks-cluster
+
+Role assignment → allows AKS to pull from ACR securely
+
+
+Deploy
+```
+kubectl apply -f k8s/
+kubectl get all -n infinion
+```
+
+
+Output
+```
+NAME                                        READY   STATUS    RESTARTS   AGE
+pod/infinion-weather-api-5975554d56-5dljg   1/1     Running   0          5m
+service/infinion-weather-api-service        LoadBalancer   10.0.117.60   145.133.106.43   80:30463/TCP   5m
+```
+
+Test Endpoint
+```
+curl -s http://145.133.106.43/weatherforecast | jq .
+```
+
+✅ Returns JSON weather data
+
+
+
+🔐 Security Best Practices
+
+✔️ Managed Identity for AKS → no static secrets
+✔️ ACR admin disabled
+✔️ Private image pull integration
+✔️ Role-based access (Contributor)
+✔️ Namespace isolation (infinion)
+✔️ GitHub Secrets for CI/CD credentials
+
+
+Cleanup
+
+When done, destroy all resources:
+
+```
+terraform destroy -auto-approve
+# OR if created manually
+az group delete -n infinion-devops-rg --yes --no-wait
+```
