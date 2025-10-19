@@ -7,7 +7,7 @@ variable "location" {
 variable "resource_group_name" {
   description = "The name of the Azure Resource Group"
   type        = string
-  default     = "infinion-weather-api-rg"
+  default     = "Wisdom"
 }
 
 variable "aks_cluster_name" {

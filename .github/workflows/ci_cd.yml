@@ -1,17 +1,21 @@
 name: CI/CD - Build -> Push ACR -> Deploy to AKS
+
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: infinion-weather-api
+  RESOURCE_GROUP: 'Wisdom'
+  CLUSTER_NAME: 'infinion-aks-cluster'
+  ACR_NAME: 'infinionacr1760906713'
+  NAMESPACE: 'infinion'
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     outputs:
-      image_full: ${{ steps.set-vars.outputs.image_full }}
+      image_tag: ${{ steps.build.outputs.image_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -19,66 +23,76 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@v3
         with:
-          dotnet-version: '7.0.x'
+          dotnet-version: '8.0.x'  
 
       - name: Build project
-        run: dotnet build ./infinion-weather-api/InfinionDevOps.csproj --configuration Release
+        run: |
+          dotnet build --configuration Release
+          dotnet test --verbosity normal
 
       - name: Login to Azure
-        uses: azure/login@v2
+        uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Get ACR login server
-        id: acr
+      - name: Build and push to ACR
+        id: build
         run: |
-          echo "login_server=$(az acr show -n ${{ secrets.ACR_NAME }} --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} --query loginServer -o tsv)" >> $GITHUB_OUTPUT
-
-      - name: Login to ACR
-        uses: azure/docker-login@v1
-        with:
-          login-server: ${{ steps.acr.outputs.login_server }}
-
-      - name: Build & push Docker image
-        id: docker
-        uses: docker/build-push-action@v5
-        with:
-          context: ./infinion-weather-api
-          file: ./infinion-weather-api/Dockerfile
-          push: true
-          tags: |
-            ${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:latest
-            ${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-
-      - name: Set output image
-        id: set-vars
-        run: |
-          echo "image_full=${{ steps.acr.outputs.login_server }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> $GITHUB_OUTPUT
+          # Use ACR build instead of Docker build-push (simpler and uses Azure's build agents)
+          az acr build --registry $ACR_NAME \
+            --image ${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --image ${{ env.IMAGE_NAME }}:latest \
+            .
+          echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
 
   deploy:
     runs-on: ubuntu-latest
     needs: build-and-push
+    environment: production
+    
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Login to Azure
-        uses: azure/login@v2
+        uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Set AKS context
-        uses: azure/aks-set-context@v2
+        uses: azure/aks-set-context@v3
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-          cluster-name: ${{ secrets.AKS_CLUSTER_NAME }}
-          resource-group: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          resource-group: $RESOURCE_GROUP
+          cluster-name: $CLUSTER_NAME
 
       - name: Deploy to AKS
         env:
-          IMAGE_FULL: ${{ needs.build-and-push.outputs.image_full }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
+          # Create namespace if not exists
+          kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Apply Kubernetes manifests
           kubectl apply -f k8s/namespace.yaml
-          sed "s#REPLACE_WITH_ACR_LOGIN#${{ secrets.ACR_NAME }}.azurecr.io#g; s#REPLACE_TAG#${{ github.sha }}#g" k8s/deployment.yaml | kubectl apply -f -
           kubectl apply -f k8s/service.yaml
-          kubectl -n infinion rollout status deployment/infinion-weather-api
+          
+          # Update deployment with new image (handles both create and update)
+          kubectl set image deployment/infinion-weather-api infinion-weather-api=$ACR_NAME.azurecr.io/infinion-weather-api:$IMAGE_TAG -n $NAMESPACE --record
+          
+          # If deployment doesn't exist, create it
+          if ! kubectl get deployment/infinion-weather-api -n $NAMESPACE; then
+            echo "Creating new deployment..."
+            sed "s#REPLACE_WITH_ACR_LOGIN#$ACR_NAME.azurecr.io#g; s#REPLACE_TAG#$IMAGE_TAG#g" k8s/deployment.yaml | kubectl apply -f -
+          fi
+          
+          # Wait for rollout to complete
+          kubectl rollout status deployment/infinion-weather-api -n $NAMESPACE --timeout=300s
+
+      - name: Verify deployment
+        run: |
+          echo "Deployment completed successfully!"
+          kubectl get all -n $NAMESPACE
+          
+          # Get service URL for easy access
+          SERVICE_IP=$(kubectl get service infinion-weather-api-service -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
+          echo "Weather API URL: http://$SERVICE_IP/weatherforecast"

@@ -10,6 +10,7 @@
     # pkgs.python311
     pkgs.sudo
     pkgs.tenv
+    pkgs.k3s
     pkgs.ruby-zoom
     pkgs.azure-cli
     # pkgs.python311Packages.pip

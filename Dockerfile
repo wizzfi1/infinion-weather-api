@@ -1,15 +1,18 @@
-# Stage 1 - Build
-FROM mcr.microsoft.com/dotnet/sdk:7.0 AS build
-WORKDIR /src
-COPY ["InfinionDevOps.csproj", "./"]
-RUN dotnet restore
-COPY . .
-RUN dotnet publish -c Release -o /app/publish
-
-# Stage 2 - Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:7.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
 WORKDIR /app
-COPY --from=build /app/publish .
-ENV ASPNETCORE_URLS=http://+:80
 EXPOSE 80
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY ["InfinionDevOps.csproj", "."]
+RUN dotnet restore "InfinionDevOps.csproj"
+COPY . .
+RUN dotnet build "InfinionDevOps.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "InfinionDevOps.csproj" -c Release -o /app/publish
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
 ENTRYPOINT ["dotnet", "InfinionDevOps.dll"]
