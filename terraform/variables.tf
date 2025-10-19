@@ -1,42 +1,14 @@
-variable "subscription_id" {
-  description = "Azure Subscription ID"
-  type        = string
-  default     = ""
-}
-
-variable "tenant_id" {
-  description = "Azure Tenant ID"
-  type        = string
-  default     = ""
-}
-
-variable "client_id" {
-  description = "Azure Service Principal Client ID"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-variable "client_secret" {
-  description = "Azure Service Principal Client Secret"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
-
 variable "location" {
   description = "Azure region to deploy resources"
   type        = string
-  default     = "eastus"
+  default     = "uksouth"  
 }
 
 variable "resource_group_name" {
-  description = "The name of the Azure Resource Group to create or use"
+  description = "The name of the Azure Resource Group"
   type        = string
-  default     = "infinion-devops-rg"
+  default     = "infinion-weather-api-rg"
 }
-
 
 variable "aks_cluster_name" {
   description = "The name of the AKS cluster"

@@ -2,11 +2,11 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.115"
+      version = "~> 4.0"
     }
     random = {
       source  = "hashicorp/random"
-      version = "~> 3.6"
+      version = "~> 3.0"
     }
   }
 
@@ -15,5 +15,6 @@ terraform {
 
 provider "azurerm" {
   features {}
-  use_cli = true  # ← this lets you use your Cloud Shell / az login context
 }
+
+
