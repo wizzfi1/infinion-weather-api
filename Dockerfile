@@ -15,4 +15,11 @@ RUN dotnet publish "InfinionDevOps.csproj" -c Release -o /app/publish
 FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+RUN adduser --disabled-password --home /app --gecos '' appuser && chown -R appuser /app
+USER appuser
+
 ENTRYPOINT ["dotnet", "InfinionDevOps.dll"]

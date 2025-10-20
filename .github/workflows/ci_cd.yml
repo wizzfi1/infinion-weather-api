@@ -1,7 +1,9 @@
-name: CI/CD - Build -> Push ACR -> Deploy to AKS
+name: CI/CD - Build → Scan → Deploy
 
 on:
   push:
+    branches: [ main ]
+  pull_request:
     branches: [ main ]
   workflow_dispatch:
 
@@ -10,14 +12,16 @@ env:
   CLUSTER_NAME: 'infinion-aks-cluster'
   ACR_NAME: 'infinionacr1760906713'
   NAMESPACE: 'infinion'
+  IMAGE_NAME: 'infinion-weather-api'
 
 jobs:
-  build-and-push:
+  security-scan:
+    name:  Security Scanning
     runs-on: ubuntu-latest
     outputs:
-      image_tag: ${{ steps.build.outputs.image_tag }}
+      security_passed: ${{ steps.checkov.outputs.result }} == 'success' && ${{ steps.trivy-fs.outputs.result }} == 'success'
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up .NET
@@ -27,64 +31,215 @@ jobs:
 
       - name: Build project
         run: |
-          # Use the solution file for building
+          echo " Building .NET application..."
           dotnet build devops-api.sln --configuration Release
           dotnet test devops-api.sln --verbosity normal
 
-      - name: Login to Azure
-        uses: azure/login@v1
+      - name: Run Trivy filesystem scan
+        id: trivy-fs
+        uses: aquasecurity/trivy-action@master
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: 1
+          skip-files: '**/node_modules/**,**/vendor/**,**/bin/**,**/obj/**'
+
+      - name: Upload Trivy filesystem results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-fs-results.sarif'
+
+      - name: Run Checkov infrastructure scan
+        id: checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+          soft_fail: false
+          framework: terraform,kubernetes,dockerfile,github_actions
+          skip_check: >
+            CKV_AZURE_12,  # Ensure storage account secure transfer enabled
+            CKV_AZURE_34,  # Ensure that 'Public access level' is set to Private for blob containers
+            CKV_K8S_37,    # Minimize the admission of containers with added capabilities
+            CKV_DOCKER_3,  # Ensure that a user for the container has been created
+            CKV_GITHUB_6   # Ensure GitHub organization security settings require 2FA
+          quiet: true
+          download_external_modules: true
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'checkov-results.sarif'
+
+      - name: Run Terrascan for additional IaC security
+        uses: accurics/terrascan-action@v1
+        with:
+          iac_type: 'terraform'
+          iac_version: 'v1.6.0'
+          policy_type: 'azure'
+          only_warn: true
+          sarif_upload: true
+
+  build-and-push:
+    name: 🐳 Build & Container Scan
+    runs-on: ubuntu-latest
+    needs: security-scan
+    outputs:
+      image_tag: ${{ steps.build.outputs.image_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        run: |
+          az login --service-principal \
+            -u ${{ secrets.AZURE_CLIENT_ID }} \
+            -p ${{ secrets.AZURE_CLIENT_SECRET }} \
+            --tenant ${{ secrets.AZURE_TENANT_ID }}
 
       - name: Build and push to ACR
         id: build
         run: |
+          echo " Building and pushing Docker image to ACR..."
           az acr build --registry $ACR_NAME \
-            --image infinion-weather-api:${{ github.sha }} \
-            --image infinion-weather-api:latest \
+            --image $IMAGE_NAME:${{ github.sha }} \
+            --image $IMAGE_NAME:latest \
+            --file Dockerfile \
             .
           echo "image_tag=${{ github.sha }}" >> $GITHUB_OUTPUT
 
-  deploy:
+      - name: Scan container image with Trivy
+        run: |
+          echo " Scanning container image for vulnerabilities..."
+          # Install Trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.45.1
+          
+          # Scan the newly built image
+          trivy image $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }} \
+            --format sarif \
+            --output trivy-image-results.sarif \
+            --severity CRITICAL,HIGH \
+            --exit-code 1 \
+            --ignore-unfixed
+
+      - name: Upload container scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-image-results.sarif'
+
+      - name: Run Grype container scan (additional scanner)
+        uses: anchore/scan-action@v3
+        with:
+          image: $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}
+          fail-build: true
+          severity-cutoff: high
+
+  deploy-to-aks:
+    name:  Deploy to AKS
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: 
+      - security-scan
+      - build-and-push
     environment: production
+    if: needs.security-scan.outputs.security_passed == 'true'
     
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Login to Azure
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+        run: |
+          az login --service-principal \
+            -u ${{ secrets.AZURE_CLIENT_ID }} \
+            -p ${{ secrets.AZURE_CLIENT_SECRET }} \
+            --tenant ${{ secrets.AZURE_TENANT_ID }}
 
       - name: Set AKS context
-        uses: azure/aks-set-context@v3
-        with:
-          resource-group: $RESOURCE_GROUP
-          cluster-name: $CLUSTER_NAME
+        run: |
+          az aks get-credentials --resource-group $RESOURCE_GROUP --name $CLUSTER_NAME --overwrite-existing
+
+      - name: Verify Kubernetes connection
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
 
       - name: Deploy to AKS
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
+          echo " Deploying to AKS..."
+          
+          # Create namespace if not exists
           kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Apply Kubernetes manifests
           kubectl apply -f k8s/namespace.yaml
           kubectl apply -f k8s/service.yaml
           
-          kubectl set image deployment/infinion-weather-api infinion-weather-api=$ACR_NAME.azurecr.io/infinion-weather-api:$IMAGE_TAG -n $NAMESPACE --record
-          
-          if ! kubectl get deployment/infinion-weather-api -n $NAMESPACE; then
-            echo "Creating new deployment..."
+          # Update or create deployment
+          if kubectl get deployment/infinion-weather-api -n $NAMESPACE &> /dev/null; then
+            echo " Updating existing deployment..."
+            kubectl set image deployment/infinion-weather-api infinion-weather-api=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG -n $NAMESPACE --record
+          else
+            echo " Creating new deployment..."
             sed "s#REPLACE_WITH_ACR_LOGIN#$ACR_NAME.azurecr.io#g; s#REPLACE_TAG#$IMAGE_TAG#g" k8s/deployment.yaml | kubectl apply -f -
           fi
           
+          # Wait for rollout to complete
+          echo " Waiting for deployment to complete..."
           kubectl rollout status deployment/infinion-weather-api -n $NAMESPACE --timeout=300s
+
+      - name: Run KubeSec Kubernetes security scan
+        run: |
+          echo " Scanning Kubernetes manifests..."
+          # Install kube-score
+          curl -L https://github.com/zegl/kube-score/releases/download/v1.16.1/kube-score_1.16.1_linux_amd64.tar.gz | tar xz
+          
+          # Score Kubernetes manifests
+          ./kube-score score k8s/*.yaml --output-format sarif > kubescore-results.sarif || true
+
+      - name: Upload KubeSec results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'kubescore-results.sarif'
 
       - name: Verify deployment
         run: |
-          echo " Deployment completed successfully!"
+          echo " Deployment verification..."
           kubectl get all -n $NAMESPACE
+          
+          # Get service details
           SERVICE_IP=$(kubectl get service infinion-weather-api-service -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
-          echo " Weather API URL: http://$SERVICE_IP/weatherforecast"
+          echo "🌐 Weather API URL: http://$SERVICE_IP/weatherforecast"
+          
+          # Test the API endpoint
+          if [ "$SERVICE_IP" != "pending" ]; then
+            echo "🧪 Testing API endpoint..."
+            curl -s --retry 5 --retry-delay 10 http://$SERVICE_IP/weatherforecast | jq . || echo "API still starting..."
+          fi
+
+  security-summary:
+    name:  Security Summary
+    runs-on: ubuntu-latest
+    needs: [security-scan, build-and-push, deploy-to-aks]
+    if: always()
+    steps:
+      - name: Security Report
+        run: |
+          echo " SECURITY SCAN SUMMARY"
+          echo "========================"
+          echo " Trivy Filesystem Scan: ${{ needs.security-scan.outputs.trivy-fs-result }}"
+          echo " Checkov IaC Scan: ${{ needs.security-scan.outputs.checkov-result }}"
+          echo " Container Image Scan: Completed"
+          echo " Kubernetes Security: Completed"
+          echo " Deployment Status: ${{ needs.deploy-to-aks.result }}"
+          echo ""
+          echo "View detailed results in GitHub Security tab →"

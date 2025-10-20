@@ -51,7 +51,7 @@ It automates infrastructure provisioning, container image builds, and Kubernetes
 | **Networking**   | LoadBalancer             | Exposes API endpoint             |
 ```
 
-erraform Infrastructure
+Terraform Infrastructure
 Files
 
 main.tf – defines RG, ACR, AKS, RBAC
@@ -70,7 +70,7 @@ terraform plan
 terraform apply -auto-approve
 ```
 
-erraform provisions:
+Terraform provisions:
 
 Resource Group → infinion-devops-rg
 

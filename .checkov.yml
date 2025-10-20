@@ -1,0 +1,39 @@
+branch: main
+download-external-modules: true
+evaluate-variables: true
+external-modules-download-path: .checkov_cache
+framework:
+  - terraform
+  - kubernetes
+  - dockerfile
+  - github_actions
+  - secrets
+quiet: false
+compact: true
+soft-fail: false
+skip-check:
+  # Azure specific skips
+  - CKV_AZURE_12    # Ensure storage account secure transfer enabled (not using storage)
+  - CKV_AZURE_34    # Ensure that 'Public access level' is set to Private for blob containers
+  - CKV_AZURE_42    # Ensure the storage account containing the container with activity logs is encrypted with BYOK
+  
+  # Kubernetes specific skips
+  - CKV_K8S_11      # CPU limits (development environment)
+  - CKV_K8S_37      # Minimize the admission of containers with added capabilities
+  - CKV_K8S_38      # Ensure that Service Account Tokens are only mounted where necessary
+  
+  # Docker specific skips
+  - CKV_DOCKER_3    # Ensure that a user for the container has been created
+  - CKV_DOCKER_7    # Ensure the base image uses a non latest version tag
+  
+  # GitHub Actions skips
+  - CKV_GITHUB_6    # Ensure GitHub organization security settings require 2FA
+  - CKV_GITHUB_7    # Ensure GitHub organization security settings require SSO
+
+skip-path:
+  - .git/
+  - .github/workflows/terraform-plan.yml
+  - node_modules/
+  - vendor/
+
+output: sarif
