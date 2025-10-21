@@ -1,4 +1,4 @@
-name: 🔒 Security-First CI/CD - Build → Scan → Deploy
+name: CI/CD - Build → Scan → Deploy
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
   NAMESPACE: 'infinion'
   IMAGE_NAME: 'infinion-weather-api'
 
-# ✅ Add proper permissions at workflow level
+
 permissions:
   contents: read
   security-events: write
@@ -23,12 +23,12 @@ permissions:
 
 jobs:
   security-scan:
-    name: 🔍 Security Scanning
+    name:  Security Scanning
     runs-on: ubuntu-latest
     outputs:
       security_passed: ${{ steps.final-check.outputs.result }}
     
-    # ✅ Add permissions at job level too
+    
     permissions:
       contents: read
       security-events: write
@@ -47,7 +47,7 @@ jobs:
 
       - name: Build project
         run: |
-          echo "🔨 Building .NET application..."
+          echo " Building .NET application..."
           dotnet build devops-api.sln --configuration Release
           dotnet test devops-api.sln --verbosity normal
 
@@ -73,17 +73,17 @@ jobs:
       - name: Display Trivy results in workflow
         if: always()
         run: |
-          echo "📋 Trivy Security Findings Summary:"
+          echo " Trivy Security Findings Summary:"
           if [ -f "trivy-results.sarif" ]; then
-            echo "✅ Trivy scan completed - results saved to security tab"
+            echo " Trivy scan completed - results saved to security tab"
           else
-            echo "⚠️  Trivy scan did not generate results file"
+            echo "  Trivy scan did not generate results file"
           fi
 
       - name: Run Checkov infrastructure scan
         id: checkov
         run: |
-          echo "🔍 Running Checkov scan..."
+          echo " Running Checkov scan..."
           # Install Checkov
           pip3 install checkov
           
@@ -105,18 +105,18 @@ jobs:
       - name: Display Checkov results in workflow
         if: always()
         run: |
-          echo "📋 Checkov Infrastructure Security Summary:"
+          echo " Checkov Infrastructure Security Summary:"
           if [ -f "checkov-results.sarif" ]; then
-            echo "✅ Checkov scan completed - results saved to security tab"
+            echo " Checkov scan completed - results saved to security tab"
           else
-            echo "⚠️  Checkov scan did not generate results file"
+            echo "  Checkov scan did not generate results file"
           fi
 
       - name: Final security check
         id: final-check
         run: |
           # Basic check - if we got this far, security scans ran
-          echo "✅ Security scanning phase completed"
+          echo " Security scanning phase completed"
           echo "result=success" >> $GITHUB_OUTPUT
 
   build-and-push:
@@ -144,7 +144,7 @@ jobs:
       - name: Build and push to ACR
         id: build
         run: |
-          echo "🏗️ Building and pushing Docker image to ACR..."
+          echo " Building and pushing Docker image to ACR..."
           az acr build --registry $ACR_NAME \
             --image $IMAGE_NAME:${{ github.sha }} \
             --image $IMAGE_NAME:latest \
@@ -154,7 +154,7 @@ jobs:
 
       - name: Scan container image with Trivy
         run: |
-          echo "🔍 Scanning container image for vulnerabilities..."
+          echo " Scanning container image for vulnerabilities..."
           # Install Trivy
           curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
           
@@ -167,11 +167,11 @@ jobs:
 
       - name: Display container scan summary
         run: |
-          echo "✅ Container security scan completed"
-          echo "📦 Image: $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}"
+          echo " Container security scan completed"
+          echo " Image: $ACR_NAME.azurecr.io/$IMAGE_NAME:${{ github.sha }}"
 
   deploy-to-aks:
-    name: 🚀 Deploy to AKS
+    name:  Deploy to AKS
     runs-on: ubuntu-latest
     needs: 
       - security-scan
@@ -200,7 +200,7 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.build-and-push.outputs.image_tag }}
         run: |
-          echo "🚀 Deploying to AKS..."
+          echo " Deploying to AKS..."
           
           # Create namespace if not exists
           kubectl create namespace $NAMESPACE --dry-run=client -o yaml | kubectl apply -f -
@@ -211,34 +211,34 @@ jobs:
           
           # Update or create deployment
           if kubectl get deployment/infinion-weather-api -n $NAMESPACE &> /dev/null; then
-            echo "📦 Updating existing deployment..."
+            echo " Updating existing deployment..."
             kubectl set image deployment/infinion-weather-api infinion-weather-api=$ACR_NAME.azurecr.io/$IMAGE_NAME:$IMAGE_TAG -n $NAMESPACE --record
           else
-            echo "🆕 Creating new deployment..."
+            echo " Creating new deployment..."
             sed "s#REPLACE_WITH_ACR_LOGIN#$ACR_NAME.azurecr.io#g; s#REPLACE_TAG#$IMAGE_TAG#g" k8s/deployment.yaml | kubectl apply -f -
           fi
           
           # Wait for rollout to complete
-          echo "⏳ Waiting for deployment to complete..."
+          echo " Waiting for deployment to complete..."
           kubectl rollout status deployment/infinion-weather-api -n $NAMESPACE --timeout=300s
 
       - name: Verify deployment
         run: |
-          echo "✅ Deployment verification..."
+          echo " Deployment verification..."
           kubectl get all -n $NAMESPACE
           
           # Get service details
           SERVICE_IP=$(kubectl get service infinion-weather-api-service -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
-          echo "🌐 Weather API URL: http://$SERVICE_IP/weatherforecast"
+          echo " Weather API URL: http://$SERVICE_IP/weatherforecast"
           
           # Test the API endpoint
           if [ "$SERVICE_IP" != "pending" ]; then
-            echo "🧪 Testing API endpoint..."
+            echo " Testing API endpoint..."
             curl -s --retry 5 --retry-delay 10 http://$SERVICE_IP/weatherforecast | jq . || echo "API still starting..."
           fi
 
   security-report:
-    name: 📊 Security Report
+    name:  Security Report
     runs-on: ubuntu-latest
     needs: [security-scan, build-and-push, deploy-to-aks]
     if: always()
@@ -250,14 +250,14 @@ jobs:
       - name: Generate Security Summary
         run: |
           echo " "
-          echo "🔒 SECURITY & DEPLOYMENT SUMMARY"
+          echo " SECURITY & DEPLOYMENT SUMMARY"
           echo "================================="
-          echo "✅ Security Scanning: COMPLETED"
-          echo "✅ Container Build: COMPLETED" 
-          echo "✅ AKS Deployment: ${{ needs.deploy-to-aks.result || 'COMPLETED' }}"
+          echo " Security Scanning: COMPLETED"
+          echo " Container Build: COMPLETED" 
+          echo " AKS Deployment: ${{ needs.deploy-to-aks.result || 'COMPLETED' }}"
           echo " "
-          echo "📋 Security findings available in:"
+          echo " Security findings available in:"
           echo "   GitHub → Security → Code scanning"
           echo " "
-          echo "🌐 Live API: http://$(kubectl get service infinion-weather-api-service -n infinion -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo 'DEPLOYED')/weatherforecast"
+          echo " Live API: http://$(kubectl get service infinion-weather-api-service -n infinion -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo 'DEPLOYED')/weatherforecast"
           echo " "
