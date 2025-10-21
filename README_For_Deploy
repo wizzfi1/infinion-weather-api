@@ -121,5 +121,5 @@ When done, destroy all resources:
 ```
 terraform destroy -auto-approve
 # OR if created manually
-az group delete -n infinion-devops-rg --yes --no-wait
+az aks delete --resource-group Wisdom --name infinion-aks-cluster --yes --no-wait
 ```
